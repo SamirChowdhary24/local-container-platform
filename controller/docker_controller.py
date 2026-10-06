@@ -11,6 +11,9 @@ class DockerController:
             image=image,
             name=name,
             ports={"8000/tcp": host_port},
+            environment={
+                "CONTAINER_NAME": name,
+            },
             detach=True,
         )
 
@@ -25,7 +28,7 @@ class DockerController:
         """Create and start multiple application replicas."""
         existing_containers = self.list_containers()
 
-        used_numbers = []
+        used_numbers = set()
 
         for container in existing_containers:
             name = container["name"]
@@ -33,11 +36,14 @@ class DockerController:
             if name.startswith("lcp-app-"):
                 try:
                     number = int(name.replace("lcp-app-", ""))
-                    used_numbers.append(number)
+                    used_numbers.add(number)
                 except ValueError:
                     continue
 
-        next_number = max(used_numbers, default=0) + 1
+        next_number = 1
+
+        while next_number in used_numbers:
+            next_number += 1
 
         replicas = []
 

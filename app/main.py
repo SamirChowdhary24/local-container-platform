@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+import os
 import socket
 
 app = FastAPI(
@@ -12,6 +13,7 @@ app = FastAPI(
 def root():
     return {
         "message": "Hello from Local Container Platform",
+        "container": os.getenv("CONTAINER_NAME", "unknown"),
         "hostname": socket.gethostname(),
     }
 
@@ -20,5 +22,6 @@ def root():
 def health():
     return {
         "status": "healthy",
+        "container": os.getenv("CONTAINER_NAME", "unknown"),
         "hostname": socket.gethostname(),
     }

@@ -57,6 +57,7 @@ def test_deploy():
         image="local-container-app:1.0",
         name="lcp-app-3",
         ports={"8000/tcp": 8003},
+        environment={"CONTAINER_NAME": "lcp-app-3"},
         detach=True,
     )
 
@@ -157,18 +158,21 @@ def test_deploy_replicas():
             "image": "local-container-app:1.0",
             "name": "lcp-app-4",
             "ports": {"8000/tcp": 8021},
+            "environment": {"CONTAINER_NAME": "lcp-app-4"},
             "detach": True,
         },
         {
             "image": "local-container-app:1.0",
             "name": "lcp-app-5",
             "ports": {"8000/tcp": 8022},
+            "environment": {"CONTAINER_NAME": "lcp-app-5"},
             "detach": True,
         },
         {
             "image": "local-container-app:1.0",
             "name": "lcp-app-6",
             "ports": {"8000/tcp": 8023},
+            "environment": {"CONTAINER_NAME": "lcp-app-6"},
             "detach": True,
         },
     ]
