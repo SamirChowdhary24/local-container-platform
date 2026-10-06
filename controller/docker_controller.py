@@ -21,6 +21,24 @@ class DockerController:
             "host_port": host_port,
         }
 
+    def deploy_replicas(self, image, replica_count, start_port):
+        """Create and start multiple application replicas."""
+        replicas = []
+
+        for index in range(1, replica_count + 1):
+            name = f"lcp-app-{index}"
+            host_port = start_port + index - 1
+
+            replica = self.deploy(
+                name=name,
+                image=image,
+                host_port=host_port,
+            )
+
+            replicas.append(replica)
+
+        return replicas
+
     def list_containers(self):
         """List containers managed by this platform."""
         containers = self.client.containers.list(

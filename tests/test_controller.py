@@ -109,3 +109,51 @@ def test_remove():
         "name": "lcp-app-3",
         "status": "removed",
     }
+
+def test_deploy_replicas():
+    mock_client = MagicMock()
+
+    mock_container = MagicMock()
+    mock_container.short_id = "abc123"
+    mock_container.name = "lcp-app-1"
+    mock_container.status = "running"
+
+    mock_client.containers.run.return_value = mock_container
+
+    controller = DockerController(client=mock_client)
+
+    replicas = controller.deploy_replicas(
+        image="local-container-app:1.0",
+        replica_count=3,
+        start_port=8001,
+    )
+
+    assert len(replicas) == 3
+    assert mock_client.containers.run.call_count == 3
+
+    expected_calls = [
+        {
+            "image": "local-container-app:1.0",
+            "name": "lcp-app-1",
+            "ports": {"8000/tcp": 8001},
+            "detach": True,
+        },
+        {
+            "image": "local-container-app:1.0",
+            "name": "lcp-app-2",
+            "ports": {"8000/tcp": 8002},
+            "detach": True,
+        },
+        {
+            "image": "local-container-app:1.0",
+            "name": "lcp-app-3",
+            "ports": {"8000/tcp": 8003},
+            "detach": True,
+        },
+    ]
+
+    actual_calls = [
+        call.kwargs for call in mock_client.containers.run.call_args_list
+    ]
+
+    assert actual_calls == expected_calls
