@@ -23,11 +23,27 @@ class DockerController:
 
     def deploy_replicas(self, image, replica_count, start_port):
         """Create and start multiple application replicas."""
+        existing_containers = self.list_containers()
+
+        used_numbers = []
+
+        for container in existing_containers:
+            name = container["name"]
+
+            if name.startswith("lcp-app-"):
+                try:
+                    number = int(name.replace("lcp-app-", ""))
+                    used_numbers.append(number)
+                except ValueError:
+                    continue
+
+        next_number = max(used_numbers, default=0) + 1
+
         replicas = []
 
-        for index in range(1, replica_count + 1):
-            name = f"lcp-app-{index}"
-            host_port = start_port + index - 1
+        for index in range(replica_count):
+            name = f"lcp-app-{next_number + index}"
+            host_port = start_port + index
 
             replica = self.deploy(
                 name=name,

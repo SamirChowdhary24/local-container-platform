@@ -33,45 +33,53 @@ def list_containers(controller):
 
 
 def deploy_container(controller):
-    print("\n--- Deploy Container ---")
+    print("\n--- Deploy Application ---")
 
-    name = input("Container name: ").strip()
-
-    if not name:
-        print("Error: Container name cannot be empty.")
-        return
-
-    if not name.startswith("lcp-app-"):
-        print("Error: Container name must start with 'lcp-app-'.")
-        return
-
-    port_input = input("Host port: ").strip()
+    replica_input = input("Replica count: ").strip()
 
     try:
-        host_port = int(port_input)
+        replica_count = int(replica_input)
     except ValueError:
-        print("Error: Port must be a number.")
+        print("Error: Replica count must be a number.")
         return
 
-    if not 1024 <= host_port <= 65535:
-        print("Error: Port must be between 1024 and 65535.")
+    if replica_count < 1:
+        print("Error: Replica count must be at least 1.")
+        return
+
+    start_port_input = input("Starting host port: ").strip()
+
+    try:
+        start_port = int(start_port_input)
+    except ValueError:
+        print("Error: Starting port must be a number.")
+        return
+
+    end_port = start_port + replica_count - 1
+
+    if start_port < 1024 or end_port > 65535:
+        print("Error: Replica ports must be between 1024 and 65535.")
         return
 
     try:
-        result = controller.deploy(
-            name=name,
+        results = controller.deploy_replicas(
             image=IMAGE_NAME,
-            host_port=host_port,
+            replica_count=replica_count,
+            start_port=start_port,
         )
 
-        print("\n✓ Container deployed successfully.")
-        print(f"  Name:   {result['name']}")
-        print(f"  ID:     {result['id']}")
-        print(f"  Status: {result['status']}")
-        print(f"  Port:   {result['host_port']}")
+        print(f"\n✓ {replica_count} replicas deployed successfully.")
+        print("-" * 50)
+
+        for result in results:
+            print(
+                f"{result['name']:<18}"
+                f"Port: {result['host_port']:<6}"
+                f"Status: {result['status']}"
+            )
 
     except APIError as error:
-        print(f"\nError: Could not deploy container.")
+        print("\nError: Could not deploy replicas.")
         print(f"Details: {error.explanation}")
 
 
@@ -144,7 +152,7 @@ def main():
     while True:
         print_header()
 
-        print("1. Deploy container")
+        print("1. Deploy application")
         print("2. List containers")
         print("3. Start container")
         print("4. Stop container")

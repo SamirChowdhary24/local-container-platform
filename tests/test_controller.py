@@ -113,10 +113,31 @@ def test_remove():
 def test_deploy_replicas():
     mock_client = MagicMock()
 
+    existing_container_1 = MagicMock()
+    existing_container_1.short_id = "abc123"
+    existing_container_1.name = "lcp-app-1"
+    existing_container_1.status = "running"
+
+    existing_container_2 = MagicMock()
+    existing_container_2.short_id = "def456"
+    existing_container_2.name = "lcp-app-2"
+    existing_container_2.status = "running"
+
+    existing_container_3 = MagicMock()
+    existing_container_3.short_id = "ghi789"
+    existing_container_3.name = "lcp-app-3"
+    existing_container_3.status = "running"
+
     mock_container = MagicMock()
-    mock_container.short_id = "abc123"
-    mock_container.name = "lcp-app-1"
+    mock_container.short_id = "new123"
+    mock_container.name = "lcp-app-4"
     mock_container.status = "running"
+
+    mock_client.containers.list.return_value = [
+        existing_container_1,
+        existing_container_2,
+        existing_container_3,
+    ]
 
     mock_client.containers.run.return_value = mock_container
 
@@ -125,7 +146,7 @@ def test_deploy_replicas():
     replicas = controller.deploy_replicas(
         image="local-container-app:1.0",
         replica_count=3,
-        start_port=8001,
+        start_port=8021,
     )
 
     assert len(replicas) == 3
@@ -134,20 +155,20 @@ def test_deploy_replicas():
     expected_calls = [
         {
             "image": "local-container-app:1.0",
-            "name": "lcp-app-1",
-            "ports": {"8000/tcp": 8001},
+            "name": "lcp-app-4",
+            "ports": {"8000/tcp": 8021},
             "detach": True,
         },
         {
             "image": "local-container-app:1.0",
-            "name": "lcp-app-2",
-            "ports": {"8000/tcp": 8002},
+            "name": "lcp-app-5",
+            "ports": {"8000/tcp": 8022},
             "detach": True,
         },
         {
             "image": "local-container-app:1.0",
-            "name": "lcp-app-3",
-            "ports": {"8000/tcp": 8003},
+            "name": "lcp-app-6",
+            "ports": {"8000/tcp": 8023},
             "detach": True,
         },
     ]
