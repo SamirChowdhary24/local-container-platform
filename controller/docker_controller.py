@@ -17,7 +17,7 @@ class DockerController:
         return {
             "id": container.short_id,
             "name": container.name,
-            "status": container.status,
+            "status": "running",
             "host_port": host_port,
         }
 
