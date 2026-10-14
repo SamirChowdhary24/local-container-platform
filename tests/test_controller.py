@@ -1,3 +1,4 @@
+
 from unittest.mock import MagicMock
 
 from controller.docker_controller import DockerController
@@ -16,6 +17,13 @@ def test_list_containers():
     container.short_id = "abc123"
     container.name = "lcp-app-1"
     container.status = "running"
+    container.attrs = {
+        "NetworkSettings": {
+            "Ports": {
+                "8000/tcp": [{"HostPort": "8011"}]
+            }
+        }
+    }
 
     mock_client.containers.list.return_value = [container]
 
@@ -26,6 +34,7 @@ def test_list_containers():
             "id": "abc123",
             "name": "lcp-app-1",
             "status": "running",
+            "host_port": 8011,
         }
     ]
 
@@ -100,6 +109,7 @@ def test_remove():
     controller, mock_client = create_controller()
 
     container = MagicMock()
+    container.name = "lcp-app-3"
     mock_client.containers.get.return_value = container
 
     result = controller.remove("lcp-app-3")
@@ -111,35 +121,36 @@ def test_remove():
         "status": "removed",
     }
 
+
 def test_deploy_replicas():
     mock_client = MagicMock()
 
-    existing_container_1 = MagicMock()
-    existing_container_1.short_id = "abc123"
-    existing_container_1.name = "lcp-app-1"
-    existing_container_1.status = "running"
+    existing_containers = []
 
-    existing_container_2 = MagicMock()
-    existing_container_2.short_id = "def456"
-    existing_container_2.name = "lcp-app-2"
-    existing_container_2.status = "running"
-
-    existing_container_3 = MagicMock()
-    existing_container_3.short_id = "ghi789"
-    existing_container_3.name = "lcp-app-3"
-    existing_container_3.status = "running"
+    for short_id, name in [
+        ("abc123", "lcp-app-1"),
+        ("def456", "lcp-app-2"),
+        ("ghi789", "lcp-app-3"),
+    ]:
+        container = MagicMock()
+        container.short_id = short_id
+        container.name = name
+        container.status = "running"
+        container.attrs = {
+            "NetworkSettings": {
+                "Ports": {
+                    "8000/tcp": [{"HostPort": str(8020 + int(name[-1]))}]
+                }
+            }
+        }
+        existing_containers.append(container)
 
     mock_container = MagicMock()
     mock_container.short_id = "new123"
     mock_container.name = "lcp-app-4"
     mock_container.status = "running"
 
-    mock_client.containers.list.return_value = [
-        existing_container_1,
-        existing_container_2,
-        existing_container_3,
-    ]
-
+    mock_client.containers.list.return_value = existing_containers
     mock_client.containers.run.return_value = mock_container
 
     controller = DockerController(client=mock_client)
@@ -178,7 +189,8 @@ def test_deploy_replicas():
     ]
 
     actual_calls = [
-        call.kwargs for call in mock_client.containers.run.call_args_list
+        call.kwargs
+        for call in mock_client.containers.run.call_args_list
     ]
 
     assert actual_calls == expected_calls

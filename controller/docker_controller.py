@@ -1,3 +1,4 @@
+
 import docker
 
 
@@ -11,9 +12,7 @@ class DockerController:
             image=image,
             name=name,
             ports={"8000/tcp": host_port},
-            environment={
-                "CONTAINER_NAME": name,
-            },
+            environment={"CONTAINER_NAME": name},
             detach=True,
         )
 
@@ -25,84 +24,89 @@ class DockerController:
         }
 
     def deploy_replicas(self, image, replica_count, start_port):
-        """Create and start multiple application replicas."""
-        existing_containers = self.list_containers()
-
+        """Create multiple replicas using unused container names."""
+        existing = self.list_containers()
         used_numbers = set()
 
-        for container in existing_containers:
+        for container in existing:
             name = container["name"]
-
             if name.startswith("lcp-app-"):
-                try:
-                    number = int(name.replace("lcp-app-", ""))
-                    used_numbers.add(number)
-                except ValueError:
-                    continue
-
-        next_number = 1
-
-        while next_number in used_numbers:
-            next_number += 1
+                suffix = name.removeprefix("lcp-app-")
+                if suffix.isdigit():
+                    used_numbers.add(int(suffix))
 
         replicas = []
+        number = 1
 
-        for index in range(replica_count):
-            name = f"lcp-app-{next_number + index}"
-            host_port = start_port + index
+        while len(replicas) < replica_count:
+            if number not in used_numbers:
+                host_port = start_port + len(replicas)
+                replica = self.deploy(
+                    name=f"lcp-app-{number}",
+                    image=image,
+                    host_port=host_port,
+                )
+                replicas.append(replica)
+                used_numbers.add(number)
 
-            replica = self.deploy(
-                name=name,
-                image=image,
-                host_port=host_port,
-            )
-
-            replicas.append(replica)
+            number += 1
 
         return replicas
 
     def list_containers(self):
-        """List containers managed by this platform."""
+        """List managed containers, including stopped containers."""
         containers = self.client.containers.list(
             all=True,
             filters={"name": "lcp-app-"},
         )
 
-        return [
-            {
+        results = []
+
+        for container in containers:
+            host_port = None
+
+            try:
+                mappings = (
+                    container.attrs["NetworkSettings"]["Ports"]
+                    .get("8000/tcp")
+                )
+                if mappings:
+                    host_port = int(mappings[0]["HostPort"])
+            except (KeyError, IndexError, TypeError, ValueError):
+                pass
+
+            results.append({
                 "id": container.short_id,
                 "name": container.name,
                 "status": container.status,
-            }
-            for container in containers
+                "host_port": host_port,
+            })
+
+        return results
+
+    def list_running_replicas(self):
+        """Return running replicas with known host ports for Nginx."""
+        return [
+            container
+            for container in self.list_containers()
+            if container["status"] == "running"
+            and container["host_port"] is not None
         ]
 
     def start(self, name):
         """Start a stopped container."""
         container = self.client.containers.get(name)
         container.start()
-
-        return {
-            "name": container.name,
-            "status": "started",
-        }
+        return {"name": container.name, "status": "started"}
 
     def stop(self, name):
         """Stop a running container."""
         container = self.client.containers.get(name)
         container.stop()
-
-        return {
-            "name": container.name,
-            "status": "stopped",
-        }
+        return {"name": container.name, "status": "stopped"}
 
     def remove(self, name):
-        """Remove a stopped container."""
+        """Remove a container."""
         container = self.client.containers.get(name)
         container.remove()
-
-        return {
-            "name": name,
-            "status": "removed",
-        }
+        return {"name": name, "status": "removed"}

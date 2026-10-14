@@ -1,9 +1,19 @@
+
+from pathlib import Path
+import subprocess
+
 from docker.errors import APIError, NotFound
 
 from controller.docker_controller import DockerController
+from controller.nginx_manager import NginxManager
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 IMAGE_NAME = "local-container-app:1.0"
+
+nginx_manager = NginxManager(
+    config_path=PROJECT_ROOT / "nginx" / "upstreams.conf"
+)
 
 
 def print_header():
@@ -20,16 +30,40 @@ def list_containers(controller):
         return
 
     print("\nManaged Containers:")
-    print("-" * 65)
-    print(f"{'Name':<18}{'ID':<15}{'Status':<12}")
-    print("-" * 65)
+    print("-" * 80)
+    print(f"{'Name':<18}{'ID':<15}{'Status':<12}{'Port':<10}")
+    print("-" * 80)
 
     for container in containers:
+        port = container.get("host_port")
+        port_text = str(port) if port is not None else "-"
+
         print(
             f"{container['name']:<18}"
             f"{container['id']:<15}"
             f"{container['status']:<12}"
+            f"{port_text:<10}"
         )
+
+
+def sync_load_balancer(controller):
+    """Synchronize Nginx with the currently running replicas."""
+    try:
+        replicas = controller.list_running_replicas()
+        nginx_manager.sync(replicas)
+
+        print(
+            f"✓ Nginx synchronized with "
+            f"{len(replicas)} running replica(s)."
+        )
+        return True
+
+    except (subprocess.CalledProcessError, OSError, ValueError) as error:
+        print("\nWARNING: The container operation succeeded,")
+        print("but Nginx synchronization failed.")
+        print(f"Details: {error}")
+        print("Check the Nginx configuration before further changes.")
+        return False
 
 
 def deploy_container(controller):
@@ -68,7 +102,7 @@ def deploy_container(controller):
             start_port=start_port,
         )
 
-        print(f"\n✓ {replica_count} replicas deployed successfully.")
+        print(f"\n✓ {len(results)} replica(s) deployed.")
         print("-" * 50)
 
         for result in results:
@@ -78,14 +112,15 @@ def deploy_container(controller):
                 f"Status: {result['status']}"
             )
 
+        sync_load_balancer(controller)
+
     except APIError as error:
         print("\nError: Could not deploy replicas.")
-        print(f"Details: {error.explanation}")
+        print(f"Details: {getattr(error, 'explanation', str(error))}")
 
 
 def start_container(controller):
     print("\n--- Start Container ---")
-
     name = input("Container name: ").strip()
 
     if not name:
@@ -95,18 +130,18 @@ def start_container(controller):
     try:
         result = controller.start(name)
         print(f"\n✓ {result['name']} started successfully.")
+        sync_load_balancer(controller)
 
     except NotFound:
         print(f"\nError: Container '{name}' was not found.")
 
     except APIError as error:
-        print(f"\nError: Could not start container.")
-        print(f"Details: {error.explanation}")
+        print("Error: Could not start container.")
+        print(f"Details: {getattr(error, 'explanation', str(error))}")
 
 
 def stop_container(controller):
     print("\n--- Stop Container ---")
-
     name = input("Container name: ").strip()
 
     if not name:
@@ -116,18 +151,18 @@ def stop_container(controller):
     try:
         result = controller.stop(name)
         print(f"\n✓ {result['name']} stopped successfully.")
+        sync_load_balancer(controller)
 
     except NotFound:
         print(f"\nError: Container '{name}' was not found.")
 
     except APIError as error:
-        print(f"\nError: Could not stop container.")
-        print(f"Details: {error.explanation}")
+        print("Error: Could not stop container.")
+        print(f"Details: {getattr(error, 'explanation', str(error))}")
 
 
 def remove_container(controller):
     print("\n--- Remove Container ---")
-
     name = input("Container name: ").strip()
 
     if not name:
@@ -137,13 +172,15 @@ def remove_container(controller):
     try:
         result = controller.remove(name)
         print(f"\n✓ {result['name']} removed successfully.")
+        sync_load_balancer(controller)
 
     except NotFound:
         print(f"\nError: Container '{name}' was not found.")
 
     except APIError as error:
         print("\nError: Container could not be removed.")
-        print("Make sure the container is stopped before removing it.")
+        print("Make sure it is stopped before removing it.")
+        print(f"Details: {getattr(error, 'explanation', str(error))}")
 
 
 def main():
@@ -164,23 +201,17 @@ def main():
         try:
             if choice == "1":
                 deploy_container(controller)
-
             elif choice == "2":
                 list_containers(controller)
-
             elif choice == "3":
                 start_container(controller)
-
             elif choice == "4":
                 stop_container(controller)
-
             elif choice == "5":
                 remove_container(controller)
-
             elif choice == "6":
                 print("\nExiting Local Container Service Platform.")
                 break
-
             else:
                 print("\nError: Invalid choice. Please select 1-6.")
 
