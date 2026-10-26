@@ -8,6 +8,8 @@ It combines Docker container management and Nginx load balancing behind an inter
 
 > **Project status:** Early development. Dockloom currently supports deploying a built-in demo application, managing its containers, and distributing traffic between running replicas.
 
+![alt text](dockloom-cli.jpeg)
+
 ## Table of Contents
 
 - [Problem Statement](#problem-statement)
@@ -143,6 +145,7 @@ cd local-container-platform
 ```bash
 python -m venv .venv
 source .venv/bin/activate
+pip install -e .
 ```
 
 ### 3. Install Dependencies
@@ -182,7 +185,7 @@ The Nginx server configuration must include the appropriate upstream file and ex
 Run Dockloom from the repository root:
 
 ```bash
-python -m controller.cli
+controller.cli
 ```
 
 The CLI provides the following menu:

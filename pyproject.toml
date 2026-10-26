@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dockloom"
+version = "0.1.0"
+description = "A lightweight local container deployment and load-balancing platform"
+requires-python = ">=3.12"
+dependencies = [
+    "docker==7.2.0",
+    "rich==15.0.0",
+]
+
+[project.scripts]
+dockloom = "controller.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["controller*"]
