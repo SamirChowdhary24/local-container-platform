@@ -1,98 +1,173 @@
-
 from pathlib import Path
 import subprocess
 
 from docker.errors import APIError, NotFound
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 from controller.docker_controller import DockerController
 from controller.nginx_manager import NginxManager
 
 
+# --------------------------------------------------
+# Dockloom configuration
+# --------------------------------------------------
+
+APP_NAME = "Dockloom"
+APP_VERSION = "0.1.0"
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 IMAGE_NAME = "local-container-app:1.0"
+
+console = Console()
 
 nginx_manager = NginxManager(
     config_path=PROJECT_ROOT / "nginx" / "upstreams.conf"
 )
 
 
-def print_header():
-    print("\n" + "=" * 45)
-    print("     Local Container Service Platform")
-    print("=" * 45)
+# --------------------------------------------------
+# Branding and interface
+# --------------------------------------------------
 
+def print_header():
+    logo = r"""
+ ____             _    _
+|  _ \  ___   ___| | _| | ___   ___  _ __ ___
+| | | |/ _ \ / __| |/ / |/ _ \ / _ \| '_ ` _ \
+| |_| | (_) | (__|   <| | (_) | (_) | | | | | |
+|____/ \___/ \___|_|\_\_|\___/ \___/|_| |_| |_|
+"""
+
+    content = Text(logo, style="bold cyan")
+    content.append(f"\n                 v{APP_VERSION}", style="bold white")
+    content.append("\n       Build. Deploy. Balance.", style="italic bright_white")
+
+    console.print(
+        Panel(
+            content,
+            border_style="bright_blue",
+            padding=(1, 2),
+            expand=False,
+        )
+    )
+
+
+def print_success(message):
+    console.print(f"[bold green]✓[/bold green] {message}")
+
+
+def print_error(message):
+    console.print(f"[bold red]✗[/bold red] {message}")
+
+
+def print_warning(message):
+    console.print(f"[bold yellow]![/bold yellow] {message}")
+
+
+def pause():
+    console.input("\n[dim]Press Enter to continue...[/dim]")
+
+
+# --------------------------------------------------
+# Container management
+# --------------------------------------------------
 
 def list_containers(controller):
     containers = controller.list_containers()
 
     if not containers:
-        print("\nNo managed containers found.")
+        console.print(
+            Panel(
+                "No managed containers found.",
+                title="Containers",
+                border_style="yellow",
+            )
+        )
         return
 
-    print("\nManaged Containers:")
-    print("-" * 80)
-    print(f"{'Name':<18}{'ID':<15}{'Status':<12}{'Port':<10}")
-    print("-" * 80)
+    table = Table(
+        title="Managed Containers",
+        border_style="bright_blue",
+        header_style="bold cyan",
+    )
+
+    table.add_column("Name", style="white")
+    table.add_column("ID", style="dim")
+    table.add_column("Status")
+    table.add_column("Host Port", justify="right")
 
     for container in containers:
+        status = container["status"]
+
+        status_style = (
+            "green" if status == "running" else "red"
+        )
+
         port = container.get("host_port")
         port_text = str(port) if port is not None else "-"
 
-        print(
-            f"{container['name']:<18}"
-            f"{container['id']:<15}"
-            f"{container['status']:<12}"
-            f"{port_text:<10}"
+        table.add_row(
+            container["name"],
+            container["id"],
+            f"[{status_style}]{status}[/{status_style}]",
+            port_text,
         )
+
+    console.print(table)
 
 
 def sync_load_balancer(controller):
-    """Synchronize Nginx with the currently running replicas."""
+    """Synchronize Nginx with currently running replicas."""
     try:
         replicas = controller.list_running_replicas()
         nginx_manager.sync(replicas)
 
-        print(
-            f"✓ Nginx synchronized with "
-            f"{len(replicas)} running replica(s)."
+        print_success(
+            f"Nginx synchronized with {len(replicas)} running replica(s)."
         )
         return True
 
     except (subprocess.CalledProcessError, OSError, ValueError) as error:
-        print("\nWARNING: The container operation succeeded,")
-        print("but Nginx synchronization failed.")
-        print(f"Details: {error}")
-        print("Check the Nginx configuration before further changes.")
+        print_warning("Container operation succeeded, but Nginx synchronization failed.")
+        console.print(f"[dim]Details: {error}[/dim]")
+        console.print(
+            "Check the Nginx configuration before making further changes."
+        )
         return False
 
 
 def deploy_container(controller):
-    print("\n--- Deploy Application ---")
+    console.print(
+        Panel("Deploy an application", border_style="cyan")
+    )
 
-    replica_input = input("Replica count: ").strip()
+    replica_input = console.input("Replica count: ").strip()
 
     try:
         replica_count = int(replica_input)
     except ValueError:
-        print("Error: Replica count must be a number.")
+        print_error("Replica count must be a number.")
         return
 
     if replica_count < 1:
-        print("Error: Replica count must be at least 1.")
+        print_error("Replica count must be at least 1.")
         return
 
-    start_port_input = input("Starting host port: ").strip()
+    start_port_input = console.input("Starting host port: ").strip()
 
     try:
         start_port = int(start_port_input)
     except ValueError:
-        print("Error: Starting port must be a number.")
+        print_error("Starting port must be a number.")
         return
 
     end_port = start_port + replica_count - 1
 
     if start_port < 1024 or end_port > 65535:
-        print("Error: Replica ports must be between 1024 and 65535.")
+        print_error("Replica ports must be between 1024 and 65535.")
         return
 
     try:
@@ -102,101 +177,143 @@ def deploy_container(controller):
             start_port=start_port,
         )
 
-        print(f"\n✓ {len(results)} replica(s) deployed.")
-        print("-" * 50)
+        print_success(f"{len(results)} replica(s) deployed.")
+
+        table = Table(
+            title="Deployment Results",
+            border_style="green",
+            header_style="bold cyan",
+        )
+
+        table.add_column("Container")
+        table.add_column("Host Port", justify="right")
+        table.add_column("Status")
 
         for result in results:
-            print(
-                f"{result['name']:<18}"
-                f"Port: {result['host_port']:<6}"
-                f"Status: {result['status']}"
+            table.add_row(
+                result["name"],
+                str(result["host_port"]),
+                f"[green]{result['status']}[/green]",
             )
 
+        console.print(table)
         sync_load_balancer(controller)
 
     except APIError as error:
-        print("\nError: Could not deploy replicas.")
-        print(f"Details: {getattr(error, 'explanation', str(error))}")
+        print_error("Could not deploy replicas.")
+        console.print(
+            f"[dim]{getattr(error, 'explanation', str(error))}[/dim]"
+        )
 
 
 def start_container(controller):
-    print("\n--- Start Container ---")
-    name = input("Container name: ").strip()
+    console.print(Panel("Start a container", border_style="cyan"))
+    name = console.input("Container name: ").strip()
 
     if not name:
-        print("Error: Container name cannot be empty.")
+        print_error("Container name cannot be empty.")
         return
 
     try:
         result = controller.start(name)
-        print(f"\n✓ {result['name']} started successfully.")
+        print_success(f"{result['name']} started successfully.")
         sync_load_balancer(controller)
 
     except NotFound:
-        print(f"\nError: Container '{name}' was not found.")
+        print_error(f"Container '{name}' was not found.")
 
     except APIError as error:
-        print("Error: Could not start container.")
-        print(f"Details: {getattr(error, 'explanation', str(error))}")
+        print_error("Could not start the container.")
+        console.print(
+            f"[dim]{getattr(error, 'explanation', str(error))}[/dim]"
+        )
 
 
 def stop_container(controller):
-    print("\n--- Stop Container ---")
-    name = input("Container name: ").strip()
+    console.print(Panel("Stop a container", border_style="cyan"))
+    name = console.input("Container name: ").strip()
 
     if not name:
-        print("Error: Container name cannot be empty.")
+        print_error("Container name cannot be empty.")
         return
 
     try:
         result = controller.stop(name)
-        print(f"\n✓ {result['name']} stopped successfully.")
+        print_success(f"{result['name']} stopped successfully.")
         sync_load_balancer(controller)
 
     except NotFound:
-        print(f"\nError: Container '{name}' was not found.")
+        print_error(f"Container '{name}' was not found.")
 
     except APIError as error:
-        print("Error: Could not stop container.")
-        print(f"Details: {getattr(error, 'explanation', str(error))}")
+        print_error("Could not stop the container.")
+        console.print(
+            f"[dim]{getattr(error, 'explanation', str(error))}[/dim]"
+        )
 
 
 def remove_container(controller):
-    print("\n--- Remove Container ---")
-    name = input("Container name: ").strip()
+    console.print(Panel("Remove a container", border_style="cyan"))
+    name = console.input("Container name: ").strip()
 
     if not name:
-        print("Error: Container name cannot be empty.")
+        print_error("Container name cannot be empty.")
         return
 
     try:
         result = controller.remove(name)
-        print(f"\n✓ {result['name']} removed successfully.")
+        print_success(f"{result['name']} removed successfully.")
         sync_load_balancer(controller)
 
     except NotFound:
-        print(f"\nError: Container '{name}' was not found.")
+        print_error(f"Container '{name}' was not found.")
 
     except APIError as error:
-        print("\nError: Container could not be removed.")
-        print("Make sure it is stopped before removing it.")
-        print(f"Details: {getattr(error, 'explanation', str(error))}")
+        print_error("Container could not be removed.")
+        console.print(
+            f"[dim]{getattr(error, 'explanation', str(error))}[/dim]"
+        )
 
+
+# --------------------------------------------------
+# Main menu
+# --------------------------------------------------
 
 def main():
     controller = DockerController()
 
     while True:
+        console.clear()
         print_header()
 
-        print("1. Deploy application")
-        print("2. List containers")
-        print("3. Start container")
-        print("4. Stop container")
-        print("5. Remove container")
-        print("6. Exit")
+        menu = Table(
+            show_header=False,
+            box=None,
+            padding=(0, 2),
+        )
 
-        choice = input("\nEnter choice: ").strip()
+        menu.add_column("Option", style="bold cyan", width=6)
+        menu.add_column("Action", style="white")
+
+        menu.add_row("1", "Deploy application")
+        menu.add_row("2", "List containers")
+        menu.add_row("3", "Start container")
+        menu.add_row("4", "Stop container")
+        menu.add_row("5", "Remove container")
+        menu.add_row("6", "Exit")
+
+        console.print(
+            Panel(
+                menu,
+                title="[bold]MAIN MENU[/bold]",
+                border_style="bright_blue",
+                padding=(1, 2),
+            )
+        )
+
+        choice = console.input(
+            "\n[bold cyan]Select an option [1-6]: [/bold cyan]"
+        ).strip()
 
         try:
             if choice == "1":
@@ -210,15 +327,20 @@ def main():
             elif choice == "5":
                 remove_container(controller)
             elif choice == "6":
-                print("\nExiting Local Container Service Platform.")
+                console.print(
+                    Panel(
+                        "Thanks for using Dockloom. See you next time!",
+                        border_style="bright_blue",
+                    )
+                )
                 break
             else:
-                print("\nError: Invalid choice. Please select 1-6.")
+                print_error("Invalid choice. Please select 1-6.")
 
         except Exception as error:
-            print(f"\nUnexpected error: {error}")
+            print_error(f"Unexpected error: {error}")
 
-        input("\nPress Enter to continue...")
+        pause()
 
 
 if __name__ == "__main__":
