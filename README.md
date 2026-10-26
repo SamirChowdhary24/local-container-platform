@@ -185,7 +185,7 @@ The Nginx server configuration must include the appropriate upstream file and ex
 Run Dockloom from the repository root:
 
 ```bash
-controller.cli
+dockloom
 ```
 
 The CLI provides the following menu:
