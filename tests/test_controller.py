@@ -60,7 +60,9 @@ def test_deploy():
         "name": "lcp-app-3",
         "status": "running",
         "host_port": 8003,
+        "container_port": 8000,
     }
+
 
     mock_client.containers.run.assert_called_once_with(
         image="local-container-app:1.0",

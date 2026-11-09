@@ -1,7 +1,7 @@
 from pathlib import Path
 import subprocess
 
-from docker.errors import APIError, NotFound
+from docker.errors import APIError, BuildError, NotFound
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -10,7 +10,9 @@ from rich.text import Text
 from controller.docker_controller import DockerController
 from controller.nginx_manager import NginxManager
 
+import re
 
+from controller.repository_deployer import RepositoryDeployer
 # --------------------------------------------------
 # Dockloom configuration
 # --------------------------------------------------
@@ -275,6 +277,124 @@ def remove_container(controller):
         )
 
 
+def deploy_repository(controller):
+    """Clone a GitHub repository, build its image, and deploy replicas."""
+    console.print(
+        Panel(
+            "Deploy a GitHub repository\n\n"
+            "[yellow]Note:[/yellow] The repository must contain a "
+            "Dockerfile in its root directory.",
+            border_style="cyan",
+        )
+    )
+
+    repository_url = console.input("GitHub repository URL: ").strip()
+
+    if not repository_url:
+        print_error("Repository URL cannot be empty.")
+        return
+
+    try:
+        replica_count = int(
+            console.input("Replica count: ").strip()
+        )
+        if replica_count < 1:
+            print_error("Replica count must be at least 1.")
+            return
+
+        container_port = int(
+            console.input("Internal container port: ").strip()
+        )
+        if not 1 <= container_port <= 65535:
+            print_error("Container port must be between 1 and 65535.")
+            return
+
+        start_port = int(
+            console.input("Starting host port: ").strip()
+        )
+
+    except ValueError:
+        print_error("Replica count and ports must be valid numbers.")
+        return
+
+    end_port = start_port + replica_count - 1
+
+    if start_port < 1024 or end_port > 65535:
+        print_error("Host ports must be between 1024 and 65535.")
+        return
+
+    deployer = RepositoryDeployer()
+    repository_path = None
+
+    try:
+        owner, repository = deployer.validate_url(repository_url)
+
+        # Keep image names and container prefixes Docker-compatible.
+        repository_key = re.sub(
+            r"[^a-z0-9_.-]+",
+            "-",
+            f"{owner}-{repository}".lower(),
+        ).strip("-.")
+
+        image_name = f"dockloom-{repository_key}:latest"
+        name_prefix = f"lcp-app-{repository_key}"
+
+        console.print("\n[cyan]Cloning repository...[/cyan]")
+        repository_path = deployer.clone_repository(repository_url)
+
+        console.print("[cyan]Building Docker image...[/cyan]")
+        deployer.build_image(
+            repository_path=repository_path,
+            image_name=image_name,
+            docker_client=controller.client,
+        )
+
+        console.print("[cyan]Deploying replicas...[/cyan]")
+        results = controller.deploy_replicas(
+            image=image_name,
+            replica_count=replica_count,
+            start_port=start_port,
+            container_port=container_port,
+            name_prefix=name_prefix,
+        )
+
+        print_success(
+            f"Deployed {len(results)} replica(s) from {owner}/{repository}."
+        )
+
+        table = Table(
+            title="Repository Deployment Results",
+            border_style="green",
+            header_style="bold cyan",
+        )
+        table.add_column("Container")
+        table.add_column("Host Port", justify="right")
+        table.add_column("Container Port", justify="right")
+        table.add_column("Status")
+
+        for result in results:
+            table.add_row(
+                result["name"],
+                str(result["host_port"]),
+                str(result["container_port"]),
+                f"[green]{result['status']}[/green]",
+            )
+
+        console.print(table)
+        sync_load_balancer(controller)
+
+    except (
+        ValueError,
+        FileExistsError,
+        RuntimeError,
+        BuildError,
+        APIError,
+        OSError,
+    ) as error:
+        print_error("Repository deployment failed.")
+        console.print(f"[dim]{error}[/dim]")
+
+
 # --------------------------------------------------
 # Main menu
 # --------------------------------------------------
@@ -295,12 +415,13 @@ def main():
         menu.add_column("Option", style="bold cyan", width=6)
         menu.add_column("Action", style="white")
 
-        menu.add_row("1", "Deploy application")
-        menu.add_row("2", "List containers")
-        menu.add_row("3", "Start container")
-        menu.add_row("4", "Stop container")
-        menu.add_row("5", "Remove container")
-        menu.add_row("6", "Exit")
+        menu.add_row("1", "Deploy demo application")
+        menu.add_row("2", "Deploy GitHub repository")
+        menu.add_row("3", "List containers")
+        menu.add_row("4", "Start container")
+        menu.add_row("5", "Stop container")
+        menu.add_row("6", "Remove container")
+        menu.add_row("7", "Exit")
 
         console.print(
             Panel(
@@ -312,21 +433,23 @@ def main():
         )
 
         choice = console.input(
-            "\n[bold cyan]Select an option [1-6]: [/bold cyan]"
+            "\n[bold cyan]Select an option [1-7]: [/bold cyan]"
         ).strip()
 
         try:
             if choice == "1":
                 deploy_container(controller)
             elif choice == "2":
-                list_containers(controller)
+                deploy_repository(controller)
             elif choice == "3":
-                start_container(controller)
+                list_containers(controller)
             elif choice == "4":
-                stop_container(controller)
+                start_container(controller)
             elif choice == "5":
-                remove_container(controller)
+                stop_container(controller)
             elif choice == "6":
+                remove_container(controller)
+            elif choice == "7":
                 console.print(
                     Panel(
                         "Thanks for using Dockloom. See you next time!",
@@ -335,7 +458,7 @@ def main():
                 )
                 break
             else:
-                print_error("Invalid choice. Please select 1-6.")
+                print_error("Invalid choice. Please select 1-7.")
 
         except Exception as error:
             print_error(f"Unexpected error: {error}")

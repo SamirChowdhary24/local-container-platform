@@ -6,12 +6,12 @@ class DockerController:
     def __init__(self, client=None):
         self.client = client or docker.from_env()
 
-    def deploy(self, name, image, host_port):
+    def deploy(self, name, image, host_port, container_port=8000):
         """Create and start a container."""
         container = self.client.containers.run(
             image=image,
             name=name,
-            ports={"8000/tcp": host_port},
+            ports={f"{container_port}/tcp": host_port},
             environment={"CONTAINER_NAME": name},
             detach=True,
         )
@@ -21,17 +21,22 @@ class DockerController:
             "name": container.name,
             "status": "running",
             "host_port": host_port,
+            "container_port": container_port,
         }
 
-    def deploy_replicas(self, image, replica_count, start_port):
+    def deploy_replicas(
+        self, image, replica_count, start_port, container_port=8000, name_prefix="lcp-app",
+    ):
         """Create multiple replicas using unused container names."""
         existing = self.list_containers()
         used_numbers = set()
 
         for container in existing:
             name = container["name"]
-            if name.startswith("lcp-app-"):
-                suffix = name.removeprefix("lcp-app-")
+            prefix = f"{name_prefix}-"
+
+            if name.startswith(prefix):
+                suffix = name.removeprefix(prefix)
                 if suffix.isdigit():
                     used_numbers.add(int(suffix))
 
@@ -41,11 +46,14 @@ class DockerController:
         while len(replicas) < replica_count:
             if number not in used_numbers:
                 host_port = start_port + len(replicas)
+
                 replica = self.deploy(
-                    name=f"lcp-app-{number}",
+                    name=f"{name_prefix}-{number}",
                     image=image,
                     host_port=host_port,
+                    container_port=container_port,
                 )
+
                 replicas.append(replica)
                 used_numbers.add(number)
 
@@ -66,12 +74,14 @@ class DockerController:
             host_port = None
 
             try:
-                mappings = (
-                    container.attrs["NetworkSettings"]["Ports"]
-                    .get("8000/tcp")
-                )
-                if mappings:
-                    host_port = int(mappings[0]["HostPort"])
+                port_mappings = container.attrs["NetworkSettings"]["Ports"]
+
+                # Find the first published port, regardless of container port.
+                for mappings in port_mappings.values():
+                    if mappings:
+                        host_port = int(mappings[0]["HostPort"])
+                        break
+
             except (KeyError, IndexError, TypeError, ValueError):
                 pass
 
