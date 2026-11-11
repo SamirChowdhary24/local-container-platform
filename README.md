@@ -4,11 +4,12 @@
 
 Dockloom is a lightweight, CLI-based platform for deploying and managing multiple instances of containerized applications on a single Linux host.
 
-It combines Docker container management and Nginx load balancing behind an interactive command-line interface, making local application deployment easier to understand and operate.
+It combines Docker container management, GitHub repository deployment, basic container health checks, and Nginx load balancing behind an interactive command-line interface.
 
-> **Project status:** Early development. Dockloom currently supports deploying a built-in demo application, managing its containers, and distributing traffic between running replicas.
+> **Project scope:** Dockloom is designed as a lightweight learning and development platform that demonstrates core container orchestration concepts. It is not intended to replace production orchestration platforms such as Kubernetes.
 
-![alt text](dockloom-cli.jpeg)
+![Dockloom CLI](dockloom-cli.jpeg)
+![alt text](image.png)
 
 ## Table of Contents
 
@@ -16,34 +17,45 @@ It combines Docker container management and Nginx load balancing behind an inter
 - [Features](#features)
 - [Technology Stack](#technology-stack)
 - [Architecture](#architecture)
-- [Current Implementation](#current-implementation)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Usage](#usage)
+- [GitHub Repository Deployment](#github-repository-deployment)
 - [Load Balancing](#load-balancing)
+- [Health Checks](#health-checks)
 - [Testing](#testing)
 - [Limitations](#limitations)
-- [Roadmap](#roadmap)
+- [Future Improvements](#future-improvements)
 
 ## Problem Statement
 
-Running multiple instances of an application locally involves manually creating containers, assigning ports, tracking container states, and configuring a reverse proxy.
+Running multiple instances of an application locally can involve manually building Docker images, creating containers, assigning ports, tracking container states, and configuring a reverse proxy.
 
-Dockloom aims to bring these operations together through a Python-based controller and a simple CLI.
+Dockloom brings these operations together through a Python-based controller and an interactive command-line interface.
 
-The goal is not to replace production orchestration platforms such as Kubernetes, but to build a lightweight tool that demonstrates and automates core container orchestration concepts.
+The project demonstrates core container orchestration concepts on a single machine, including:
+
+- Multi-container deployment
+- Container lifecycle management
+- Replica management
+- Deployment from GitHub repositories
+- HTTP load balancing
+- Basic container health checks
 
 ## Features
 
-- **Multi-replica deployment:** Deploy multiple instances of a containerized application.
+- **Multi-replica deployment:** Deploy multiple instances of an application.
+- **GitHub repository deployment:** Clone a GitHub repository, build its Docker image, and deploy replicas.
 - **Container lifecycle management:** List, start, stop, and remove managed containers.
 - **Port assignment:** Assign different host ports to application replicas.
 - **Load balancing:** Distribute HTTP requests across running replicas using Nginx.
-- **Single application endpoint:** Access the service through a shared endpoint.
-- **Container identification:** Identify which replica handles a request.
-- **Interactive CLI:** Navigate operations using a numbered menu.
+- **Dynamic Nginx synchronization:** Update the load balancer when managed containers are deployed, started, stopped, or removed.
+- **Container health checks:** Check whether running containers are reachable through their published host ports.
+- **Single application endpoint:** Access multiple replicas through a shared Nginx endpoint.
+- **Container identification:** The built-in demonstration application identifies which replica handled a request.
+- **Interactive CLI:** Manage deployments using a numbered menu.
 - **Terminal styling:** Display formatted tables, panels, and status messages using Rich.
-- **Automated testing:** Validate controller behavior and Nginx configuration logic using pytest.
+- **Automated testing:** Validate controller, CLI, and repository deployment behavior using pytest.
 
 ## Technology Stack
 
@@ -54,82 +66,67 @@ The goal is not to replace production orchestration platforms such as Kubernetes
 | Docker SDK for Python | Programmatic container management |
 | FastAPI | Built-in demonstration application |
 | Nginx | Reverse proxy and load balancer |
+| Git | Repository cloning |
 | Rich | CLI formatting and terminal styling |
 | Pytest | Automated testing |
-| Git and GitHub | Version control and collaboration |
+| GitHub | Source repository hosting |
 
 ## Architecture
 
 ```text
-                   User
-                    |
-                    v
-              Dockloom CLI
-                    |
-                    v
-            Python Controller
-                    |
-                    v
-               Docker Engine
-                    |
-           +--------+--------+
-           |        |        |
-           v        v        v
-        Replica  Replica  Replica
-           1        2        3
-           |        |        |
-           +--------+--------+
-                    |
-                    v
-             Nginx Load Balancer
-                    |
-                    v
-          http://localhost:8080
-```
+                         User
+                          |
+                          v
+                    Dockloom CLI
+                          |
+              +-----------+-----------+
+              |                       |
+              v                       v
+      Repository Deployer      Docker Controller
+              |                       |
+              v                       v
+       Clone GitHub Repo         Docker Engine
+              |                       |
+              v                       v
+        Build Docker Image    +------+------+ 
+                              |      |      |
+                              v      v      v
+                           Replica Replica Replica
+                              1       2       3
+                              |       |       |
+                              +-------+-------+
+                                      |
+                                      v
+                              Nginx Load Balancer
+                                      |
+                                      v
+                            http://localhost:8080
 
-Dockloom uses a Python controller to communicate with Docker Engine. Each replica runs in its own container and is mapped to a different host port.
 
-Nginx acts as a reverse proxy, distributing requests across the configured running replicas.
 
-## Current Implementation
+Dockloom uses a Python controller to communicate with Docker Engine.
 
-Dockloom currently provides a CLI for managing containers running the built-in demonstration application.
+When deploying the built-in application or a GitHub repository containing a Dockerfile, Dockloom creates one or more container replicas. Each replica is assigned its own host port.
 
-The implemented operations include:
-
-1. Deploy multiple replicas of the demo application.
-2. List managed containers and their states.
-3. Start a stopped container.
-4. Stop a running container.
-5. Remove a container.
-6. Exit the CLI.
-
-The controller uses the Docker SDK for Python to manage container operations.
-
-### Demonstration Application
-
-The built-in application uses FastAPI and exposes two endpoints:
-
-| Endpoint | Description |
-|---|---|
-| `/` | Returns a greeting and container identity |
-| `/health` | Returns a basic application health response |
-
-The container identity makes it possible to observe which replica handles a request.
-
-The `/health` endpoint is provided by the demo application. Automated health monitoring through Dockloom's CLI is a planned feature.
+Nginx acts as a reverse proxy and distributes HTTP traffic between the currently running replicas.
 
 ## Requirements
 
 Before running Dockloom, ensure your Linux environment has:
 
-- Python 3.12 or a compatible Python version.
-- Docker Engine installed and running.
-- Permission to communicate with Docker Engine.
-- Nginx installed and configured for Dockloom.
-- Git installed.
+- Python 3.12 or a compatible Python version
+- Docker Engine installed and running
+- Permission to communicate with Docker Engine
+- Nginx installed and configured
+- Git installed
 
-The demonstration application's Docker image uses Python 3.12. The Dockloom controller runs separately in your local Python environment.
+You can verify Docker access using:
+
+```bash
+docker info
+```
+
+If Docker access fails, ensure Docker Engine is running and your user has the necessary permissions.
 
 ## Installation
 
@@ -140,12 +137,11 @@ git clone https://github.com/SamirChowdhary24/local-container-platform.git
 cd local-container-platform
 ```
 
-### 2. Create a Virtual Environment
+### 2. Create and Activate a Virtual Environment
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .
 ```
 
 ### 3. Install Dependencies
@@ -156,29 +152,21 @@ pip install -r requirements.txt
 
 ### 4. Build the Demonstration Image
 
+Dockloom includes a built-in FastAPI demonstration application.
+
+Build its Docker image using:
+
 ```bash
 docker build -t local-container-app:1.0 .
 ```
 
-### 5. Verify Docker Access
+### 5. Configure Nginx
 
-```bash
-docker info
-```
+Dockloom uses Nginx as a reverse proxy and load balancer.
 
-If Docker access fails, ensure Docker Engine is running and your user has the necessary permissions.
+The controller synchronizes the Nginx upstream configuration based on the currently running replicas. Your Nginx server configuration should expose the shared application endpoint through port `8080`.
 
-### 6. Configure Nginx
-
-Dockloom generates an Nginx upstream configuration and installs it at:
-
-```text
-/etc/nginx/local-container-platform-upstreams.conf
-```
-
-The Nginx server configuration must include the appropriate upstream file and expose the application through port `8080`.
-
-**Important:** If Nginx is already serving other applications on your machine, review the existing configuration before making changes. Dockloom should not overwrite unrelated site configurations.
+Before modifying an existing Nginx installation, review your current configuration to avoid affecting unrelated applications.
 
 ## Usage
 
@@ -188,24 +176,26 @@ Run Dockloom from the repository root:
 dockloom
 ```
 
-The CLI provides the following menu:
+The CLI provides options for deploying applications and managing containers.
 
-```text
-1. Deploy application
-2. List containers
-3. Start container
-4. Stop container
-5. Remove container
-6. Exit
-```
+Available operations include:
 
-Select an option by entering its corresponding number.
+- Deploy the built-in demo application
+- Deploy a GitHub repository
+- List managed containers
+- Start a container
+- Stop a container
+- Remove a container
+- Check container health
 
-### Deploy Replicas
+## Deploying the Demo Application
 
-Choose **Deploy application** and enter the requested replica count and starting host port.
+Choose the demo application deployment option and provide:
 
-For example, deploying three replicas starting at port `8011` assigns these ports:
+- Replica count
+- Starting host port
+
+For example, deploying three replicas starting at port `8011` creates:
 
 | Replica | Host Port |
 |---|---:|
@@ -213,68 +203,223 @@ For example, deploying three replicas starting at port `8011` assigns these port
 | `lcp-app-2` | 8012 |
 | `lcp-app-3` | 8013 |
 
-The ports shown are illustrative. Actual assignments depend on the deployment configuration and available ports.
+The individual replicas can be accessed directly through their assigned host ports.
 
-Once deployment and Nginx synchronization succeed, access the application through:
+For example:
 
-```text
-http://localhost:8080
+```bash
+curl http://localhost:8011
 ```
 
-Individual replicas can also be accessed directly through their assigned host ports.
+The built-in application returns information about the container handling the request, making it easier to identify individual replicas.
+
+## GitHub Repository Deployment
+
+Dockloom can deploy containerized applications directly from a GitHub repository.
+
+The repository deployment workflow performs the following steps:
+
+1. Accept a GitHub repository URL.
+2. Clone the repository into a local workspace.
+3. Build a Docker image using the repository's Dockerfile.
+4. Create the requested number of container replicas.
+5. Assign host ports to the replicas.
+6. Synchronize the running replicas with Nginx.
+
+When deploying a repository, Dockloom requests:
+
+- GitHub repository URL
+- Number of replicas
+- Internal container port
+- Starting host port
+
+### Dockerfile Requirement
+
+The repository must contain a `Dockerfile` in its root directory.
+
+Dockloom displays this requirement before the deployment process begins.
+
+This allows the platform to build the application using the repository's existing container configuration.
+
+## Container Lifecycle Management
+
+Dockloom supports basic lifecycle operations for managed containers.
+
+### List Containers
+
+The list containers feature displays:
+
+- Container name
+- Container ID
+- Current status
+- Published host port
+
+This provides an overview of the containers currently managed by Dockloom.
+
+### Start Container
+
+A stopped container can be started by providing its container name.
+
+After the container starts, Dockloom synchronizes the Nginx configuration so the running replica can receive traffic.
+
+### Stop Container
+
+A running container can be stopped using its container name.
+
+After stopping the container, Dockloom synchronizes the load balancer configuration so traffic is directed only to the remaining running replicas.
+
+### Remove Container
+
+A stopped container can be removed using its container name.
+
+After removal, Dockloom synchronizes the Nginx configuration with the remaining running replicas.
+
+Docker does not allow a running container to be removed normally. It must first be stopped or force removed.
 
 ## Load Balancing
 
-Nginx is used as the reverse proxy and load balancer for the application replicas.
+Dockloom uses Nginx as a reverse proxy and load balancer.
 
-Instead of requiring users to access each container separately, Dockloom exposes a shared endpoint:
+Instead of requiring users to access each container separately, Dockloom provides a shared endpoint:
 
 ```text
 http://localhost:8080
 ```
 
-The controller updates the Nginx upstream configuration based on the running replicas.
+Nginx forwards incoming HTTP requests to the currently running application replicas.
 
-When a container is stopped or started through Dockloom, the platform attempts to synchronize Nginx with the updated set of running replicas.
+```text
+Client Request
+      |
+      v
+localhost:8080
+      |
+      v
+Nginx Load Balancer
+   /      |      \
+  v       v       v
+8011     8012     8013
+```
 
-This demonstrates a fundamental container orchestration concept: managing application instances and routing traffic to the instances that are currently available.
+The controller synchronizes the Nginx upstream configuration when managed containers are deployed, started, stopped, or removed.
+
+This means that stopped containers can be removed from the active load-balancing configuration while running containers remain available to receive traffic.
+
+### Demonstrating Load Balancing
+
+The built-in FastAPI application includes container identity information in its response.
+
+You can send requests to the shared Nginx endpoint:
+
+```bash
+curl http://localhost:8080
+```
+
+The response identifies the container that handled the request, making it possible to demonstrate traffic distribution between replicas.
+
+Individual replicas can also be accessed directly through their assigned host ports.
+
+## Health Checks
+
+Dockloom includes a basic health check for running managed containers.
+
+The health check verifies whether a container is reachable through its published host port.
+
+The result is displayed as either:
+
+- **HEALTHY** — The container is reachable.
+- **UNHEALTHY** — The container could not be reached.
+
+This provides additional information beyond the Docker container status.
+
+A container may be reported as running by Docker while its application is unavailable or not accepting connections correctly. The health check provides a simple network-level availability check for this situation.
 
 ## Testing
 
-Run the automated test suite from the repository root:
+Dockloom includes automated tests for its core functionality.
+
+The tests cover areas including:
+
+- Docker controller behavior
+- Container deployment logic
+- CLI behavior
+- Repository deployment behavior
+
+Run the test suite from the repository root:
 
 ```bash
 pytest -q
 ```
 
-The tests cover core Docker controller behavior and Nginx upstream configuration.
+You can also check Python syntax before committing:
+
+```bash
+python -m py_compile controller/docker_controller.py controller/cli.py
+```
+
+Check for whitespace errors using:
+
+```bash
+git diff --check
+```
 
 ## Limitations
 
-Dockloom is under active development. The current version has the following limitations:
+Dockloom currently has several limitations:
 
-- Deployment uses the built-in demonstration image.
-- Deployment from arbitrary GitHub repositories is not yet implemented.
-- Applications without a Dockerfile are not automatically containerized.
-- Application health monitoring is not yet integrated into the CLI.
-- Automatic recovery of failed containers is not yet implemented.
-- The platform is intended for local development and learning, not as a hardened production orchestration system.
+- It is designed for a single Linux host.
+- It depends on Docker Engine and Nginx being installed and configured.
+- GitHub repository deployment currently requires a Dockerfile in the repository root.
+- The health check is a basic network reachability check rather than deep application monitoring.
+- Automatic recovery of failed containers is not currently implemented.
+- The platform does not provide multi-node orchestration or scheduling.
+- Production security features such as authentication, secrets management, and automated TLS configuration are outside the current scope.
 
-## Roadmap
+## Future Improvements
 
-- [x] Docker container lifecycle management
-- [x] Multi-replica deployment
-- [x] Nginx load balancing
-- [x] Interactive CLI with Rich formatting
-- [ ] Deploy applications from GitHub repositories containing a Dockerfile
-- [ ] Improve deployment validation and error handling
-- [ ] Add application health monitoring
-- [ ] Implement automatic recovery of failed containers
-- [ ] Expand documentation and demonstration examples
-- [ ] Evaluate alternative load-balancing solutions if required
+Possible future improvements include:
+
+- [ ] Automatic recovery of unhealthy containers
+- [ ] Application-level health checks using configurable endpoints
+- [ ] Configurable load-balancing strategies
+- [ ] Container resource monitoring
+- [ ] Deployment history and event logging
+- [ ] Basic rollback support
+- [ ] Support for Dockerfiles located outside the repository root
+- [ ] Support for deploying applications across multiple hosts
+- [ ] Improved security and network isolation
+
+## Project Status
+
+The core functionality of Dockloom is implemented.
+
+The current version demonstrates the following workflow:
+
+```text
+Build Application
+       |
+       v
+Deploy Containers
+       |
+       v
+Manage Replicas
+       |
+       v
+Check Container Availability
+       |
+       v
+Synchronize Load Balancer
+       |
+       v
+Route Traffic Through a Shared Endpoint
+```
+
+Dockloom is a lightweight project that demonstrates how Docker container management, replica deployment, basic health checking, GitHub-based deployment, and HTTP load balancing can be combined into a single tool.
 
 ## Project Goal
 
-Dockloom aims to make local container deployment and management simpler through a small, understandable CLI tool.
+The goal of Dockloom is to make core container deployment concepts easier to understand and operate on a single machine.
 
-The long-term goal is to provide a reusable platform where developers can deploy applications, manage replicas, and observe load balancing without manually coordinating every operation.
+Rather than manually coordinating Docker commands, ports, GitHub repositories, and Nginx configuration, Dockloom provides a unified workflow through an interactive CLI.
+
+The project demonstrates several concepts commonly found in larger container orchestration platforms while keeping the implementation small enough to understand, test, and demonstrate.
