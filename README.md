@@ -8,7 +8,6 @@ It combines Docker container management, GitHub repository deployment, basic con
 
 > **Project scope:** Dockloom is designed as a lightweight learning and development platform that demonstrates core container orchestration concepts. It is not intended to replace production orchestration platforms such as Kubernetes.
 
-![Dockloom CLI](dockloom-cli.jpeg)
 ![alt text](image.png)
 
 ## Table of Contents
@@ -383,7 +382,6 @@ Possible future improvements include:
 - [ ] Application-level health checks using configurable endpoints
 - [ ] Configurable load-balancing strategies
 - [ ] Container resource monitoring
-- [ ] Deployment history and event logging
 - [ ] Basic rollback support
 - [ ] Support for Dockerfiles located outside the repository root
 - [ ] Support for deploying applications across multiple hosts
