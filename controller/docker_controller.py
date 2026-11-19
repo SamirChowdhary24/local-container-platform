@@ -1,6 +1,7 @@
 
 import docker
-
+import urllib.request
+import urllib.error
 
 class DockerController:
     def __init__(self, client=None):
@@ -102,6 +103,36 @@ class DockerController:
             if container["status"] == "running"
             and container["host_port"] is not None
         ]
+
+    def check_health(self, timeout=2):
+        """Check whether running managed applications respond to HTTP requests."""
+        containers = self.list_running_replicas()
+        results = []
+
+        for container in containers:
+            host_port = container["host_port"]
+            url = f"http://127.0.0.1:{host_port}/"
+
+            try:
+                with urllib.request.urlopen(url, timeout=timeout) as response:
+                    status_code = response.status
+                    health = (
+                        "healthy"
+                        if status_code < 400
+                        else "unhealthy"
+                    )
+
+            except (urllib.error.URLError, TimeoutError, OSError):
+                status_code = None
+                health = "unhealthy"
+
+            results.append({
+                **container,
+                "status_code": status_code,
+                "health": health,
+            })
+
+        return results
 
     def start(self, name):
         """Start a stopped container."""

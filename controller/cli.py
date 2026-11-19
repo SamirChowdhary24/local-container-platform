@@ -11,8 +11,11 @@ from controller.docker_controller import DockerController
 from controller.nginx_manager import NginxManager
 
 import re
-
+import json
+import urllib.request
+import urllib.error
 from controller.repository_deployer import RepositoryDeployer
+from collections import Counter
 # --------------------------------------------------
 # Dockloom configuration
 # --------------------------------------------------
@@ -119,6 +122,270 @@ def list_containers(controller):
         )
 
     console.print(table)
+
+def check_container_health(controller):
+    """Display the network health of running managed containers."""
+    results = controller.check_health()
+
+    if not results:
+        console.print(
+            Panel(
+                "No running managed containers found.",
+                title="Health Check",
+                border_style="yellow",
+            )
+        )
+        return
+
+    table = Table(
+        title="Container Health",
+        border_style="bright_blue",
+        header_style="bold cyan",
+    )
+
+    table.add_column("Name", style="white")
+    table.add_column("Host Port", justify="right")
+    table.add_column("Health")
+
+    for container in results:
+        health = container["health"]
+
+        health_text = (
+            "[green]HEALTHY[/green]"
+            if health == "healthy"
+            else "[red]UNHEALTHY[/red]"
+        )
+
+        table.add_row(
+            container["name"],
+            str(container["host_port"]),
+            health_text,
+        )
+
+    console.print(table)
+
+
+def deployment_dashboard(controller):
+    """Display an overview of Dockloom's deployment state."""
+
+    # Docker Engine status
+    try:
+        docker_running = controller.client.ping()
+    except Exception:
+        docker_running = False
+
+    if not docker_running:
+        console.print(
+            Panel(
+                "[red]Docker Engine is unavailable.[/red]\n"
+                "Start Docker and try again.",
+                title="Dockloom Deployment Dashboard",
+                border_style="red",
+            )
+        )
+        return
+
+    # Managed container status
+    containers = controller.list_containers()
+    running_containers = [
+        container for container in containers
+        if container["status"] == "running"
+    ]
+
+    # Application HTTP health
+    try:
+        health_results = controller.check_health()
+        health_by_name = {
+            item["name"]: item["health"]
+            for item in health_results
+        }
+    except Exception:
+        health_by_name = {}
+
+    healthy_count = sum(
+        1 for health in health_by_name.values()
+        if health == "healthy"
+    )
+
+    # Nginx service status
+    nginx_active = (
+        subprocess.run(
+            ["systemctl", "is-active", "--quiet", "nginx"],
+            check=False,
+        ).returncode == 0
+    )
+
+    # Read the installed upstream configuration.
+    upstream_ports = set()
+    config_readable = False
+
+    try:
+        live_config = nginx_manager.live_config_path.read_text(
+            encoding="utf-8"
+        )
+        config_readable = True
+
+        for line in live_config.splitlines():
+            match = re.search(
+                r"server\s+127\.0\.0\.1:(\d+)([^;]*);",
+                line,
+            )
+            if match and "down" not in match.group(2).split():
+                upstream_ports.add(int(match.group(1)))
+
+    except (OSError, ValueError):
+        pass
+
+    # Summary
+    summary = Table.grid(padding=(0, 2))
+    summary.add_column(style="bold white")
+    summary.add_column()
+
+    summary.add_row(
+        "Docker Engine",
+        "[green]Running[/green]",
+    )
+    summary.add_row(
+        "Nginx Service",
+        "[green]Active[/green]" if nginx_active
+        else "[red]Inactive[/red]",
+    )
+    summary.add_row("Managed Containers", str(len(containers)))
+    summary.add_row("Running Containers", str(len(running_containers)))
+    summary.add_row(
+        "Healthy Applications",
+        f"{healthy_count}/{len(running_containers)}",
+    )
+    summary.add_row(
+        "Configured Upstreams",
+        str(len(upstream_ports)) if config_readable else "[yellow]Unknown[/yellow]",
+    )
+
+    console.print(
+        Panel(
+            summary,
+            title="[bold cyan]DOCKLOOM PLATFORM STATUS[/bold cyan]",
+            border_style="bright_blue",
+            padding=(1, 2),
+        )
+    )
+
+    # Running container details
+    if not running_containers:
+        console.print(
+            Panel(
+                "No running managed containers.",
+                title="Active Backends",
+                border_style="yellow",
+            )
+        )
+        return
+
+    table = Table(
+        title="ACTIVE BACKENDS",
+        border_style="bright_blue",
+        header_style="bold cyan",
+    )
+
+    table.add_column("Container", style="white")
+    table.add_column("Host Port", justify="right")
+    table.add_column("Health")
+    table.add_column("Nginx Upstream")
+
+    for container in running_containers:
+        name = container["name"]
+        port = container.get("host_port")
+        health = health_by_name.get(name, "unknown")
+
+        if health == "healthy":
+            health_text = "[green]HEALTHY[/green]"
+        elif health == "unhealthy":
+            health_text = "[red]UNHEALTHY[/red]"
+        else:
+            health_text = "[yellow]UNKNOWN[/yellow]"
+
+        is_upstream = port is not None and port in upstream_ports
+
+        upstream_text = (
+            "[green]Configured[/green]"
+            if is_upstream
+            else "[yellow]Not configured[/yellow]"
+        )
+
+        table.add_row(
+            name,
+            str(port) if port is not None else "-",
+            health_text,
+            upstream_text,
+        )
+
+    console.print(table)
+
+
+def load_balancing_dashboard(request_count=12):
+    """Send requests through Nginx and display backend distribution."""
+    url = "http://127.0.0.1:8080"
+
+    backend_counts = Counter()
+    backend_samples = {}
+    failures = 0
+
+    console.print(
+        Panel(
+            f"Sending {request_count} requests through Nginx...",
+            title="Dockloom Load Balancing",
+            border_style="cyan",
+        )
+    )
+
+    for _ in range(request_count):
+        try:
+            with urllib.request.urlopen(url, timeout=3) as response:
+                body = response.read().decode("utf-8", errors="replace")
+
+                try:
+                    data = json.loads(body)
+                    backend = data.get("container", "Unknown backend")
+                except json.JSONDecodeError:
+                    backend = "Other backend (non-JSON)"
+
+                backend_counts[backend] += 1
+                backend_samples.setdefault(backend, body.strip()[:60])
+
+        except (urllib.error.URLError, TimeoutError, OSError):
+            failures += 1
+
+    table = Table(title="Request Distribution", show_lines=True)
+    table.add_column("Backend", style="cyan")
+    table.add_column("Requests", justify="right")
+    table.add_column("Distribution", justify="right")
+    table.add_column("Sample Response")
+
+    for backend, count in sorted(backend_counts.items()):
+        percentage = (count / request_count) * 100
+        table.add_row(
+            backend,
+            str(count),
+            f"{percentage:.1f}%",
+            backend_samples[backend],
+        )
+
+    console.print(table)
+
+    console.print(
+        f"\n[green]Successful requests:[/green] "
+        f"{request_count - failures}/{request_count}"
+    )
+    console.print(f"[red]Failed requests:[/red] {failures}")
+
+    if len(backend_counts) > 1:
+        console.print(
+            "\n[green]Multiple backends handled requests.[/green]"
+        )
+    elif backend_counts:
+        console.print(
+            "\n[yellow]Only one backend handled successful requests.[/yellow]"
+        )
 
 
 def sync_load_balancer(controller):
@@ -421,7 +688,10 @@ def main():
         menu.add_row("4", "Start container")
         menu.add_row("5", "Stop container")
         menu.add_row("6", "Remove container")
-        menu.add_row("7", "Exit")
+        menu.add_row("7", "Check container health")
+        menu.add_row("8", "Deployment Dashboard")
+        menu.add_row("9", "Load Balancing Dashboard")
+        menu.add_row("10", "Exit")  
 
         console.print(
             Panel(
@@ -433,7 +703,7 @@ def main():
         )
 
         choice = console.input(
-            "\n[bold cyan]Select an option [1-7]: [/bold cyan]"
+            "\n[bold cyan]Select an option [1-9]: [/bold cyan]"
         ).strip()
 
         try:
@@ -450,15 +720,21 @@ def main():
             elif choice == "6":
                 remove_container(controller)
             elif choice == "7":
+                check_container_health(controller)
+            elif choice == "8":
+                deployment_dashboard(controller)
+            elif choice == "9":
+                load_balancing_dashboard()
+            elif choice == "10":
                 console.print(
                     Panel(
                         "Thanks for using Dockloom. See you next time!",
                         border_style="bright_blue",
                     )
                 )
-                break
+                break   
             else:
-                print_error("Invalid choice. Please select 1-7.")
+                print_error("Invalid choice. Please select 1-9.")
 
         except Exception as error:
             print_error(f"Unexpected error: {error}")
